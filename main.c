@@ -258,6 +258,7 @@ void *write_thread(void *arg)
     struct BufferContext *buffer = info->buffer;
     struct ClientContext *clients = info->clients;
     struct AVPacketWrap *cur;
+    struct AVPacket send_pkt;
     //AVStream *out_stream, *in_stream;
 //    AVPacket pkt;
     int ret, i;
@@ -281,7 +282,8 @@ void *write_thread(void *arg)
             pkt.duration = av_rescale_q(cur->pkt->duration, in_stream->time_base, out_stream->time_base);
             pkt.pos = -1;
 */
-            ret = av_interleaved_write_frame(clients[i].ofmt_ctx, cur->pkt);
+            av_copy_packet(&send_pkt, cur->pkt);
+            ret = av_interleaved_write_frame(clients[i].ofmt_ctx, &send_pkt);
             if (ret < 0) {
                 fprintf(stderr, "Error muxing packet %s\n", av_err2str(ret));
                 remove_client(clients, i);
@@ -313,7 +315,6 @@ void *read_thread(void *arg)
     AVPacket *pkt;
     int ret;
     for(;;) {
-
         print_buffer_stats(buffer);
         pkt = (AVPacket*) malloc(sizeof(AVPacket));
 
