@@ -9,6 +9,7 @@
 #include <libavcodec/avcodec.h>
 
 #define BUFFERSIZE 16
+#define MAX_CLIENTS 1024
 
 
 struct AVPacketWrap {
@@ -35,24 +36,23 @@ struct ReadInfo {
 
 struct WriteInfo {
     struct BufferContext *buffer;
-    struct ClientContext **clients;
+    struct ClientContext *clients;
     AVFormatContext *ifmt_ctx;
 };
 
 struct ClientContext {
+    int in_use;
     int idx;
     int nb_idx;
-    int delete_me;
     struct BufferContext *buffer;
     AVFormatContext *ofmt_ctx;
-    struct ClientContext *next;
 };
 
 struct AcceptInfo {
     AVFormatContext *ifmt_ctx;
     AVIOContext *server;
     struct BufferContext *buffer;
-    struct ClientContext **clients;
+    struct ClientContext *clients;
 };
 
 int client_next_frame(struct ClientContext *cc) {
@@ -144,24 +144,41 @@ static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt, cons
            pkt->stream_index);
 }
 
+int get_free_spot(struct ClientContext *clients)
+{
+    int i;
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (!clients[i].in_use) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void *accept_thread(void *arg)
 {
     struct AcceptInfo *info = (struct AcceptInfo*) arg;
     struct BufferContext *buffer = info->buffer;
     AVIOContext *client;
-    struct ClientContext **clients = info->clients;
+    struct ClientContext *clients = info->clients;
     struct ClientContext *new_client;
     AVFormatContext *ofmt_ctx;
     AVOutputFormat *ofmt;
     AVStream *in_stream, *out_stream;
     AVCodecContext *codec_ctx;
-    int ret, i;
+    int ret, i, free_spot, reply_code;
     for (;;) {
+        reply_code = 200;
         if ((ret = avio_accept(info->server, &client)) < 0)
             continue;
         // Append client to client list
         client->seekable = 0;
-        if ((ret = av_opt_set_int(client, "reply_code", 200, AV_OPT_SEARCH_CHILDREN)) < 0) {
+        free_spot = get_free_spot(clients);
+        if (free_spot < 0) {
+            printf("No more slots free\n");
+            reply_code = 503;
+        }
+        if ((ret = av_opt_set_int(client, "reply_code", reply_code, AV_OPT_SEARCH_CHILDREN)) < 0) {
             av_log(client, AV_LOG_ERROR, "Failed to set reply_code: %s.\n", av_err2str(ret));
             continue;
         }
@@ -170,6 +187,12 @@ void *accept_thread(void *arg)
             avio_close(client);
             continue;
         }
+
+        if (reply_code == 503) {
+            avio_close(client);
+            continue;
+        }
+
         avformat_alloc_output_context2(&ofmt_ctx, NULL, "matroska", NULL);
 
         if (!ofmt_ctx) {
@@ -206,18 +229,12 @@ void *accept_thread(void *arg)
             fprintf(stderr, "Error occurred when opening output file\n");
             continue;
         }
-        new_client = (struct ClientContext*) malloc(sizeof(struct ClientContext));
+        new_client = &clients[free_spot];
+        new_client->in_use = 1;
         new_client->ofmt_ctx = ofmt_ctx;
         new_client->idx = buffer->cur_idx;
         new_client->nb_idx = buffer->nb_idx;
-        new_client->delete_me = 0;
         new_client->buffer = buffer;
-        if (!clients) {
-            new_client->next = NULL;
-        } else {
-            new_client->next = *clients;
-        }
-        *clients = new_client;
         printf("Accepted new client!\n");
 
     }
@@ -225,78 +242,65 @@ void *accept_thread(void *arg)
     return NULL;
 }
 
-void remove_client(struct ClientContext *list, struct ClientContext *to_remove)
+void remove_client(struct ClientContext *list, int idx)
 {
-    struct ClientContext *last, *cur = list;
-    last = cur;
-    to_remove->delete_me = 1;
     printf("Trying to remove client\n");
-    while ((cur = cur->next))
-    {
-        if (cur->delete_me) {
-            last->next = cur->next;
-            avio_closep(&cur->ofmt_ctx->pb);
-            avformat_free_context(cur->ofmt_ctx);
-            free(cur);
-            printf("Removed client.\n");
-        }
-        last = cur;
-    }
-
+        avio_closep(&list[idx].ofmt_ctx->pb);
+        avformat_free_context(list[idx].ofmt_ctx);
+        list[idx].in_use = 0;
+        list[idx].buffer = NULL;
+        printf("Removed client.\n");
 }
 
 void *write_thread(void *arg)
 {
     struct WriteInfo *info = (struct WriteInfo*) arg;
     struct BufferContext *buffer = info->buffer;
-    struct ClientContext **clients = info->clients;
-    struct ClientContext *cc;
+    struct ClientContext *clients = info->clients;
     struct AVPacketWrap *cur;
-    AVStream *in_stream, *out_stream;
-    AVPacket pkt;
-    int ret;
+    //AVStream *out_stream, *in_stream;
+//    AVPacket pkt;
+    int ret, i;
 
-    if (!clients || !*clients) {
-        return NULL;
-    }
-    cc = *clients;
     printf("Going through clients.\n");
-    do {
-        printf("next client\ngoing through packets %d\n", cc->idx);
-        if (cc->nb_idx == buffer->nb_idx)
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (!clients[i].in_use)
             continue;
-        cur = buffer->pkts[cc->idx];
+        printf("next client: %d\ngoing through packets %d\n", i, clients[i].idx);
+        if (clients[i].nb_idx == buffer->nb_idx)
+            continue;
+        cur = buffer->pkts[clients[i].idx];
         do {
             printf("next packet\n");
-            in_stream = info->ifmt_ctx->streams[cur->pkt->stream_index];
-            out_stream = cc->ofmt_ctx->streams[cur->pkt->stream_index];
-            av_copy_packet(&pkt, cur->pkt);
+            //in_stream = info->ifmt_ctx->streams[cur->pkt->stream_index];
+            //out_stream = clients[i].ofmt_ctx->streams[cur->pkt->stream_index];
+/*            av_copy_packet(&pkt, cur->pkt);
 
             pkt.pts = av_rescale_q_rnd(cur->pkt->pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
             pkt.dts = av_rescale_q_rnd(cur->pkt->dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
             pkt.duration = av_rescale_q(cur->pkt->duration, in_stream->time_base, out_stream->time_base);
             pkt.pos = -1;
-
-            ret = av_interleaved_write_frame(cc->ofmt_ctx, cur->pkt);
+*/
+            ret = av_interleaved_write_frame(clients[i].ofmt_ctx, cur->pkt);
             if (ret < 0) {
                 fprintf(stderr, "Error muxing packet %s\n", av_err2str(ret));
-                remove_client(*clients, cc);
-                continue;
+                remove_client(clients, i);
+                break;
             }
 
             if (ret == 1) {
-                remove_client(*clients, cc);
-                continue;
+                remove_client(clients, i);
+                break;
             }
             printf("Wrote interleaved frame\n");
 
         } while ((cur = cur->next));
-        cc->idx++;
-        cc->nb_idx++;
-        if (cc->idx == BUFFERSIZE) {
-            cc->idx = 0;
+        clients[i].idx++;
+        clients[i].nb_idx++;
+        if (clients[i].idx == BUFFERSIZE) {
+            clients[i].idx = 0;
         }
-    } while ((cc = cc->next));
+    }
 
     return NULL;
 }
@@ -341,7 +345,7 @@ int main(int argc, char *argv[])
     int ret, i;
     AVDictionary *options = NULL;
     AVIOContext *server = NULL;
-    struct ClientContext *clients = NULL;
+    struct ClientContext clients[MAX_CLIENTS] = {0};
     struct ReadInfo read_info;
     struct AcceptInfo accept_info;
     struct WriteInfo write_info;
@@ -416,11 +420,11 @@ int main(int argc, char *argv[])
     read_info.ifmt_ctx = ifmt_ctx;
     read_info.buffer = &buffer_ctx;
     accept_info.server = server;
-    accept_info.clients = &clients;
+    accept_info.clients = clients;
     accept_info.buffer = &buffer_ctx;
     accept_info.ifmt_ctx = ifmt_ctx;
     write_info.buffer = &buffer_ctx;
-    write_info.clients = &clients;
+    write_info.clients = clients;
     write_info.ifmt_ctx = ifmt_ctx;
 
     pthread_create(&r_thread, NULL, read_thread, &read_info);
