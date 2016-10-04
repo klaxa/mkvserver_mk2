@@ -4,6 +4,7 @@
 #include <pthread.h>
 
 #include <libavutil/timestamp.h>
+#include <libavutil/time.h>
 #include <libavutil/opt.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -32,6 +33,7 @@ struct ReadInfo {
     AVFormatContext *ifmt_ctx;
     struct BufferContext *buffer;
     int ret;
+    int64_t start;
 };
 
 struct WriteInfo {
@@ -79,42 +81,6 @@ void buffer_clear_list(struct BufferContext *buffer, int i)
     buffer->pkts[i] = NULL;
 }
 
-int buffer_push_pkt(struct BufferContext *buffer, AVPacket *pkt)
-{
-    // No current packet to append to and current list is empty
-    if (!buffer->pos && !buffer->pkts[buffer->cur_idx]) {
-        // create list, set current packet, set
-        buffer->pkts[buffer->cur_idx] = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
-        buffer->pos = buffer->pkts[buffer->cur_idx];
-        buffer->pos->next = NULL;
-        buffer->pos->pkt = pkt;
-        buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
-        return 0;
-    }
-
-    if (!buffer->pos && buffer->pkts[buffer->cur_idx]) {
-        buffer_clear_list(buffer, buffer->cur_idx);
-        return buffer_push_pkt(buffer, pkt);
-    }
-
-    if (pkt->flags & AV_PKT_FLAG_KEY && pkt->stream_index == buffer->video_idx) {
-        buffer->cur_idx++;
-        buffer->nb_idx++;
-        if (buffer->cur_idx == BUFFERSIZE) {
-            buffer->cur_idx = 0;
-        }
-        buffer->pos = NULL;
-        return buffer_push_pkt(buffer, pkt);
-    }
-
-    buffer->pos->next = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
-    buffer->pos = buffer->pos->next;
-    buffer->pos->next = NULL;
-    buffer->pos->pkt = pkt;
-    buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
-    return 0;
-}
-
 void print_buffer_stats(struct BufferContext *buffer)
 {
     int pkts[BUFFERSIZE], i;
@@ -138,6 +104,44 @@ void print_buffer_stats(struct BufferContext *buffer)
 
     printf("\n");
 }
+
+int buffer_push_pkt(struct BufferContext *buffer, AVPacket *pkt)
+{
+    // No current packet to append to and current list is empty
+    if (!buffer->pos && !buffer->pkts[buffer->cur_idx]) {
+        // create list, set current packet, set
+        buffer->pkts[buffer->cur_idx] = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
+        buffer->pos = buffer->pkts[buffer->cur_idx];
+        buffer->pos->next = NULL;
+        buffer->pos->pkt = pkt;
+        buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
+        return 0;
+    }
+
+    if (!buffer->pos && buffer->pkts[buffer->cur_idx]) {
+        buffer_clear_list(buffer, buffer->cur_idx);
+        return buffer_push_pkt(buffer, pkt);
+    }
+
+    if (pkt->flags & AV_PKT_FLAG_KEY && pkt->stream_index == buffer->video_idx) {
+        print_buffer_stats(buffer);
+        buffer->cur_idx++;
+        buffer->nb_idx++;
+        if (buffer->cur_idx == BUFFERSIZE) {
+            buffer->cur_idx = 0;
+        }
+        buffer->pos = NULL;
+        return buffer_push_pkt(buffer, pkt);
+    }
+
+    buffer->pos->next = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
+    buffer->pos = buffer->pos->next;
+    buffer->pos->next = NULL;
+    buffer->pos->pkt = pkt;
+    buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
+    return 0;
+}
+
 
 static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt, const char *tag)
 {
@@ -350,6 +354,11 @@ void *read_thread(void *arg)
     struct BufferContext *buffer = info->buffer;
     AVPacket *pkt;
     int ret;
+    int64_t pts, now;
+    AVStream *in_stream;
+    AVRational tb;
+    tb.num = 1;
+    tb.den = AV_TIME_BASE;
     for(;;) {
         //print_buffer_stats(buffer);
         pkt = (AVPacket*) malloc(sizeof(AVPacket));
@@ -360,6 +369,14 @@ void *read_thread(void *arg)
             free(pkt);
             info->ret = ret;
             break;
+        }
+        in_stream = ifmt_ctx->streams[pkt->stream_index];
+        pts = av_rescale_q(pkt->pts, in_stream->time_base, tb);
+        now = av_gettime_relative() - info->start;
+        //printf("now: %ld pts: %ld\n", now, pts);
+        while (pts > now) {
+            usleep(1000);
+            now = av_gettime_relative() - info->start;
         }
 
         ret = buffer_push_pkt(buffer, pkt);
@@ -453,9 +470,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to open server: %s\n", av_err2str(ret));
         return ret;
     }
-
     read_info.ifmt_ctx = ifmt_ctx;
     read_info.buffer = &buffer_ctx;
+    read_info.start = av_gettime_relative();
     accept_info.server = server;
     accept_info.clients = clients;
     accept_info.buffer = &buffer_ctx;
