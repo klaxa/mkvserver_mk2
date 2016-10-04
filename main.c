@@ -37,7 +37,13 @@ struct ReadInfo {
 struct WriteInfo {
     struct BufferContext *buffer;
     struct ClientContext *clients;
-    AVFormatContext *ifmt_ctx;
+};
+
+struct WriteGOPInfo {
+    struct BufferContext *buffer;
+    struct ClientContext *clients;
+    struct WriteGOPInfo *info;
+    int client_index;
 };
 
 struct ClientContext {
@@ -46,6 +52,7 @@ struct ClientContext {
     int nb_idx;
     struct BufferContext *buffer;
     AVFormatContext *ofmt_ctx;
+    pthread_t write_thread;
 };
 
 struct AcceptInfo {
@@ -245,11 +252,56 @@ void *accept_thread(void *arg)
 void remove_client(struct ClientContext *list, int idx)
 {
     printf("Trying to remove client\n");
-        avio_closep(&list[idx].ofmt_ctx->pb);
-        avformat_free_context(list[idx].ofmt_ctx);
-        list[idx].in_use = 0;
-        list[idx].buffer = NULL;
-        printf("Removed client.\n");
+    avio_close(list[idx].ofmt_ctx->pb);
+    avformat_free_context(list[idx].ofmt_ctx);
+    list[idx].in_use = 0;
+    list[idx].buffer = NULL;
+    printf("Removed client.\n");
+}
+
+void *write_gop_to_client(void *arg) {
+    struct WriteGOPInfo *info = (struct WriteGOPInfo*) arg;
+    struct ClientContext *clients = info->clients;
+    struct BufferContext *buffer = info->buffer;
+    int i = info->client_index;
+    struct AVPacketWrap *cur = buffer->pkts[clients[i].idx];
+    AVPacket send_pkt;
+    int ret;
+
+    do {
+        //printf("next packet\n");
+        /*
+        in_stream = info->ifmt_ctx->streams[cur->pkt->stream_index];
+        //out_stream = clients[i].ofmt_ctx->streams[cur->pkt->stream_index];
+        av_copy_packet(&pkt, cur->pkt);
+
+        pkt.pts = av_rescale_q_rnd(cur->pkt->pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+        pkt.dts = av_rescale_q_rnd(cur->pkt->dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+        pkt.duration = av_rescale_q(cur->pkt->duration, in_stream->time_base, out_stream->time_base);
+        pkt.pos = -1;
+*/
+        av_copy_packet(&send_pkt, cur->pkt);
+        ret = av_interleaved_write_frame(clients[i].ofmt_ctx, &send_pkt);
+        if (ret < 0) {
+            fprintf(stderr, "Error muxing packet %s\n", av_err2str(ret));
+            remove_client(clients, i);
+            return NULL;
+        }
+
+        if (ret == 1) {
+            remove_client(clients, i);
+            return NULL;
+        }
+        //printf("Wrote interleaved frame\n");
+
+    } while ((cur = cur->next));
+    clients[i].idx++;
+    clients[i].nb_idx++;
+    if (clients[i].idx == BUFFERSIZE) {
+        clients[i].idx = 0;
+    }
+    clients[i].in_use = 3;
+    return (void*) info->info;
 }
 
 void *write_thread(void *arg)
@@ -257,11 +309,10 @@ void *write_thread(void *arg)
     struct WriteInfo *info = (struct WriteInfo*) arg;
     struct BufferContext *buffer = info->buffer;
     struct ClientContext *clients = info->clients;
-    struct AVPacketWrap *cur;
-    struct AVPacket send_pkt;
+    struct WriteGOPInfo *gop_info;
     //AVStream *out_stream, *in_stream;
 //    AVPacket pkt;
-    int ret, i;
+    int i;
 
     printf("Going through clients.\n");
     for (i = 0; i < MAX_CLIENTS; i++) {
@@ -270,38 +321,23 @@ void *write_thread(void *arg)
         printf("next client: %d\ngoing through packets %d\n", i, clients[i].idx);
         if (clients[i].nb_idx == buffer->nb_idx)
             continue;
-        cur = buffer->pkts[clients[i].idx];
-        do {
-            printf("next packet\n");
-            //in_stream = info->ifmt_ctx->streams[cur->pkt->stream_index];
-            //out_stream = clients[i].ofmt_ctx->streams[cur->pkt->stream_index];
-/*            av_copy_packet(&pkt, cur->pkt);
-
-            pkt.pts = av_rescale_q_rnd(cur->pkt->pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-            pkt.dts = av_rescale_q_rnd(cur->pkt->dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-            pkt.duration = av_rescale_q(cur->pkt->duration, in_stream->time_base, out_stream->time_base);
-            pkt.pos = -1;
-*/
-            av_copy_packet(&send_pkt, cur->pkt);
-            ret = av_interleaved_write_frame(clients[i].ofmt_ctx, &send_pkt);
-            if (ret < 0) {
-                fprintf(stderr, "Error muxing packet %s\n", av_err2str(ret));
-                remove_client(clients, i);
-                break;
-            }
-
-            if (ret == 1) {
-                remove_client(clients, i);
-                break;
-            }
-            printf("Wrote interleaved frame\n");
-
-        } while ((cur = cur->next));
-        clients[i].idx++;
-        clients[i].nb_idx++;
-        if (clients[i].idx == BUFFERSIZE) {
-            clients[i].idx = 0;
+        if (clients[i].in_use == 2)
+            continue;
+        if (clients[i].in_use == 3) {
+            pthread_join(clients[i].write_thread, (void**) &gop_info);
+            free(gop_info);
         }
+        clients[i].in_use = 2;
+        gop_info = (struct WriteGOPInfo*) malloc(sizeof(struct WriteGOPInfo));
+
+        gop_info->buffer = buffer;
+        gop_info->clients = clients;
+        gop_info->client_index = i;
+        gop_info->info = gop_info;
+        printf("spawning new gop write thread\n");
+        pthread_create(&clients[i].write_thread, NULL, write_gop_to_client, gop_info);
+
+
     }
 
     return NULL;
@@ -315,7 +351,7 @@ void *read_thread(void *arg)
     AVPacket *pkt;
     int ret;
     for(;;) {
-        print_buffer_stats(buffer);
+        //print_buffer_stats(buffer);
         pkt = (AVPacket*) malloc(sizeof(AVPacket));
 
         ret = av_read_frame(ifmt_ctx, pkt);
@@ -426,7 +462,6 @@ int main(int argc, char *argv[])
     accept_info.ifmt_ctx = ifmt_ctx;
     write_info.buffer = &buffer_ctx;
     write_info.clients = clients;
-    write_info.ifmt_ctx = ifmt_ctx;
 
     pthread_create(&r_thread, NULL, read_thread, &read_info);
     pthread_create(&a_thread, NULL, accept_thread, &accept_info);
