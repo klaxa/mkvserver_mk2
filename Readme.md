@@ -63,7 +63,7 @@ This far nothing is implemented to handle the end of a file or a stream, so the 
 Dependencies
 ------------
 
-- FFmpeg at least commit d0be0cbebc207f3a39da2a668f45be413c9152c4 (contains fixes for ffmpeg's http server)
+- FFmpeg at least commit FFmpeg/FFmpeg@d0be0cbebc207f3a39da2a668f45be413c9152c4 (contains fixes for ffmpeg's http server)
 
 
 Todo
