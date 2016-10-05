@@ -63,3 +63,4 @@ Todo
 - Configuration
 - Documentation
 - Handle EOF
+- Management interface
