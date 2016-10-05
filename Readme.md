@@ -15,11 +15,13 @@ First of all, clone the repo and try to build the project:
 user@example~$ make
 ```
 
+
 If successful you will have built the server binary. Let's get some files to stream!
 
 ```
 user@example~$ ./server somevideo.mkv
 ```
+
 
 This will serve the file somevideo.mkv on localhost on port 8080 (so far only configurable in main.c) in real-time.
 
@@ -28,6 +30,14 @@ You can also use stdin from a live feed for example:
 ```
 user@example~$ wget http://example.org/livestream -O - | ./server
 ```
+
+
+Or just read it directly as an http served file:
+
+```
+user@example~$ ./server http://example.org/livestream
+```
+
 
 Or you can have an easy screencasting setup:
 
