@@ -78,5 +78,5 @@ Todo
 Thanks
 ------
 
-- Clément Bœsch <ubitux> for kind of "triggering" this project with a bugreport
+- Clément Bœsch \<ubitux\> for kind of "triggering" this project with a bugreport
 - Nicholas George for mentoring me during GSoC. I would never be familiar enough with the codebase without him and the project.
