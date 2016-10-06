@@ -75,6 +75,11 @@ Todo
 - Handle EOF
 - Management interface
 
+Known issues
+------------
+
+ - still leaks some memory, I haven't found out where exactly and how to fix it
+
 Thanks
 ------
 
