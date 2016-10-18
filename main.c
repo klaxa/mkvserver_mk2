@@ -34,6 +34,7 @@ int main(int argc, char *argv[])
     }
     buffer_ctx.cur_idx = 0;
     buffer_ctx.nb_idx = 0;
+    buffer_ctx.eos = 0;
     buffer_ctx.pos = NULL;
 
 
@@ -84,10 +85,22 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to set listen mode for server: %s\n", av_err2str(ret));
         return ret;
     }
+
+    if ((ret = av_dict_set_int(&options, "listen_timeout", 500, 0)) < 0) {
+        fprintf(stderr, "Failed to set listen timeout for server: %s\n", av_err2str(ret));
+        return ret;
+    }
+
+    if ((ret = av_dict_set_int(&options, "timeout", 20000, 0)) < 0) {
+        fprintf(stderr, "Failed to set listen timeout for server: %s\n", av_err2str(ret));
+        return ret;
+    }
+
     if ((ret = avio_open2(&server, out_uri, AVIO_FLAG_WRITE, NULL, &options)) < 0) {
         fprintf(stderr, "Failed to open server: %s\n", av_err2str(ret));
         return ret;
     }
+
     read_info.ifmt_ctx = ifmt_ctx;
     read_info.buffer = &buffer_ctx;
     read_info.start = av_gettime_relative();
@@ -99,22 +112,25 @@ int main(int argc, char *argv[])
     write_info.clients = clients;
 
     pthread_create(&r_thread, NULL, read_thread, &read_info);
-    pthread_create(&a_thread, NULL, accept_thread, &accept_info);
-    for (;;) {
-        //pthread_create(&w_thread, NULL, write_thread, &write_info);
-        write_thread(&write_info);
-        usleep(500000);
-        //pthread_join(w_thread, NULL);
-    }
+    pthread_create(&w_thread, NULL, write_thread, &write_info);
+    //pthread_create(&a_thread, NULL, accept_thread, &accept_info);
 
+    accept_thread(&accept_info);
+    printf("Joined a_thread\n");
 
     pthread_join(r_thread, NULL);
-    //read_thread(&read_info);
+    printf("Joined r_thread\n");
+    pthread_join(w_thread, NULL);
+    printf("Joined w_thread\n");
+    //pthread_join(a_thread, NULL);
 
 end:
 
     avformat_close_input(&ifmt_ctx);
     avio_close(server);
+
+    free_buffer(&buffer_ctx);
+    printf("Freed buffer\n");
 
 
     /* close output */

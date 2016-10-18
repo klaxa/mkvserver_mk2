@@ -72,7 +72,6 @@ Todo
 - Argument parsing
 - Configuration
 - Documentation
-- Handle EOF
 - Management interface
 
 Known issues

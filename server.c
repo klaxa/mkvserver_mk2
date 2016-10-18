@@ -35,20 +35,46 @@ void print_buffer_stats(struct BufferContext *buffer)
     printf("\n");
 }
 
+void free_buffer(struct BufferContext *buffer)
+{
+    int i;
+    for (i = 0; i < BUFFERSIZE; i++) {
+        buffer_clear_list(buffer, i);
+    }
+}
+
+int new_pkt(struct BufferContext *buffer, AVPacket *pkt, struct AVPacketWrap **new_packet)
+{
+    struct AVPacketWrap *cur = *new_packet;
+    cur = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
+    if (!cur)
+        return -1;
+    cur->next = NULL;
+    cur->pkt = av_packet_alloc();
+    av_init_packet(cur->pkt);
+    av_packet_ref(cur->pkt, pkt);
+    buffer->pos = cur;
+    *new_packet = cur;
+    return 0;
+}
+
 int buffer_push_pkt(struct BufferContext *buffer, AVPacket *pkt)
 {
     // No current packet to append to and current list is empty
     if (!buffer->pos && !buffer->pkts[buffer->cur_idx]) {
+        printf("!pos && !pkts[%d]\n", buffer->cur_idx);
         // create list, set current packet, set
-        buffer->pkts[buffer->cur_idx] = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
+        return new_pkt(buffer, pkt, &buffer->pkts[buffer->cur_idx]);
+        /*buffer->pkts[buffer->cur_idx] = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
         buffer->pos = buffer->pkts[buffer->cur_idx];
         buffer->pos->next = NULL;
-        buffer->pos->pkt = pkt;
-        buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
-        return 0;
+        buffer->pos->pkt = pkt;*/
+        //return 0;
+        //buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
     }
 
     if (!buffer->pos && buffer->pkts[buffer->cur_idx]) {
+        printf("!pos && pkts[%d]\n", buffer->cur_idx);
         buffer_clear_list(buffer, buffer->cur_idx);
         return buffer_push_pkt(buffer, pkt);
     }
@@ -64,12 +90,13 @@ int buffer_push_pkt(struct BufferContext *buffer, AVPacket *pkt)
         return buffer_push_pkt(buffer, pkt);
     }
 
-    buffer->pos->next = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
+    /*buffer->pos->next = (struct AVPacketWrap*) malloc(sizeof(struct AVPacketWrap));
     buffer->pos = buffer->pos->next;
     buffer->pos->next = NULL;
     buffer->pos->pkt = pkt;
-    buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
-    return 0;
+    return 0; */
+    return new_pkt(buffer, pkt, &buffer->pos->next);
+    //buffer->pos->hash = buffer->nb_idx / (BUFFERSIZE + 1);
 }
 
 
@@ -80,7 +107,6 @@ void buffer_clear_list(struct BufferContext *buffer, int i)
         return;
     do {
         av_packet_unref(head->pkt);
-        free(head->pkt);
         free(head);
     } while ((head = head->next));
     buffer->pkts[i] = NULL;
@@ -121,10 +147,22 @@ void *accept_thread(void *arg)
     AVStream *in_stream, *out_stream;
     AVCodecContext *codec_ctx;
     int ret, i, free_spot, reply_code;
+
     for (;;) {
+        if (buffer->eos)
+            break;
         reply_code = 200;
-        if ((ret = avio_accept(info->server, &client)) < 0)
+        printf("Accepting new clients...\n");
+        client = NULL;
+        if ((ret = avio_accept(info->server, &client)) < 0) {
+            printf("Error or timeout\n");
+            printf("ret: %d\n", ret);
             continue;
+        }
+        printf("No error or timeout\n");
+        printf("ret: %d\n", ret);
+
+
         // Append client to client list
         client->seekable = 0;
         free_spot = get_free_spot(clients);
@@ -153,7 +191,7 @@ void *accept_thread(void *arg)
             fprintf(stderr, "Could not create output context\n");
             continue;
         }
-        ofmt_ctx->flags &= AVFMT_FLAG_GENPTS;
+        ofmt_ctx->flags |= AVFMT_FLAG_GENPTS;
         ofmt = ofmt_ctx->oformat;
         ofmt->flags &= AVFMT_NOFILE;
 
@@ -206,9 +244,13 @@ void *write_gop_to_client(void *arg)
     AVPacket send_pkt;
     int ret;
 
+    av_init_packet(&send_pkt);
+
     do {
+        av_packet_unref(&send_pkt);
         av_copy_packet(&send_pkt, cur->pkt);
         ret = av_interleaved_write_frame(clients[i].ofmt_ctx, &send_pkt);
+        //av_packet_unref(&send_pkt);
         if (ret < 0) {
             fprintf(stderr, "Error muxing packet %s\n", av_err2str(ret));
             remove_client(clients, i);
@@ -238,31 +280,36 @@ void *write_thread(void *arg)
     struct ClientContext *clients = info->clients;
     struct WriteGOPInfo *gop_info;
     int i;
+        for (;;) {
+         if (buffer->eos)
+            break;
 
-    printf("Going through clients.\n");
-    for (i = 0; i < MAX_CLIENTS; i++) {
-        if (!clients[i].in_use)
-            continue;
-        printf("next client: %d\ngoing through packets %d\n", i, clients[i].idx);
-        if (clients[i].nb_idx == buffer->nb_idx)
-            continue;
-        if (clients[i].in_use == 2)
-            continue;
-        if (clients[i].in_use == 3) {
-            pthread_join(clients[i].write_thread, (void**) &gop_info);
-            free(gop_info);
+        printf("Going through clients.\n");
+        for (i = 0; i < MAX_CLIENTS; i++) {
+            if (!clients[i].in_use)
+                continue;
+            printf("next client: %d\ngoing through packets %d\n", i, clients[i].idx);
+            if (clients[i].nb_idx == buffer->nb_idx)
+                continue;
+            if (clients[i].in_use == 2)
+                continue;
+            if (clients[i].in_use == 3) {
+                pthread_join(clients[i].write_thread, (void**) &gop_info);
+                free(gop_info);
+            }
+            clients[i].in_use = 2;
+            gop_info = (struct WriteGOPInfo*) malloc(sizeof(struct WriteGOPInfo));
+
+            gop_info->buffer = buffer;
+            gop_info->clients = clients;
+            gop_info->client_index = i;
+            gop_info->info = gop_info;
+            printf("spawning new gop write thread\n");
+
+            pthread_create(&clients[i].write_thread, NULL, write_gop_to_client, gop_info);
         }
-        clients[i].in_use = 2;
-        gop_info = (struct WriteGOPInfo*) malloc(sizeof(struct WriteGOPInfo));
 
-        gop_info->buffer = buffer;
-        gop_info->clients = clients;
-        gop_info->client_index = i;
-        gop_info->info = gop_info;
-        printf("spawning new gop write thread\n");
-        pthread_create(&clients[i].write_thread, NULL, write_gop_to_client, gop_info);
-
-
+        usleep(500000);
     }
 
     return NULL;
@@ -280,14 +327,15 @@ void *read_thread(void *arg)
     AVRational tb;
     tb.num = 1;
     tb.den = AV_TIME_BASE;
+
+    pkt = av_packet_alloc();
+
     for(;;) {
         //print_buffer_stats(buffer);
-        pkt = (AVPacket*) malloc(sizeof(AVPacket));
 
         ret = av_read_frame(ifmt_ctx, pkt);
         if (ret < 0) {
             av_packet_unref(pkt);
-            free(pkt);
             info->ret = ret;
             break;
         }
@@ -307,5 +355,8 @@ void *read_thread(void *arg)
             break;
         }
     }
+
+    buffer->eos = 1;
+
     return NULL;
 }

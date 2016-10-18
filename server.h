@@ -8,7 +8,6 @@
 
 struct AVPacketWrap {
     AVPacket *pkt;
-    int hash;
     struct AVPacketWrap *next;
 };
 
@@ -18,6 +17,7 @@ struct BufferContext {
     int cur_idx;
     int nb_idx;
     int video_idx;
+    int eos;
     struct AVPacketWrap *pos;
 };
 
@@ -61,6 +61,7 @@ struct AcceptInfo {
 void print_buffer_stats(struct BufferContext *buffer);
 int buffer_push_pkt(struct BufferContext *buffer, AVPacket *pkt);
 void buffer_clear_list(struct BufferContext *buffer, int i);
+void free_buffer(struct BufferContext *buffer);
 
 int get_free_spot(struct ClientContext *clients);
 void remove_client(struct ClientContext *list, int idx);
