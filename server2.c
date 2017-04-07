@@ -344,8 +344,8 @@ void *write_thread(void *arg)
         usleep(500000);
         printf("Checking clients\n");
         for (i = 0; i < MAX_CLIENTS; i++) {
-            client_print(c);
             c = &info->pub->subscribers[i];
+            client_print(c);
             switch(c->buffer->state) {
             case WRITABLE:
                 write_segment(c);
