@@ -13,6 +13,8 @@
 #include "buffer.h"
 #include "publisher.h"
 
+#define BUFFER_SECS 10
+
 
 struct ReadInfo {
     struct PublisherContext *pub;
@@ -93,7 +95,7 @@ void *read_thread(void *arg)
             break;
         }
     }
-    start = av_gettime_relative();
+    start = av_gettime_relative() - BUFFER_SECS * AV_TIME_BASE; // read first BUFFER seconds fast
 
     for (;;) {
         //printf("Reading packet\n");
@@ -124,8 +126,8 @@ void *read_thread(void *arg)
                 sprintf(filename, "segment-%03d.mkv", id);
                 save_segment(seg, filename);
                 buffer_push_segment(info->pub->buffer, seg);
-                publish(info->pub);
                 printf("New segment pushed.\n");
+                publish(info->pub);
             }
             printf("starting new segment");
             segment_init(&seg, ifmt_ctx);
@@ -161,13 +163,13 @@ void write_segment(struct Client *c)
 {
     struct Segment *seg = buffer_peek_segment(c->buffer);
     int ret;
-    int pkt_count;
+    int pkt_count = 0;
     if (seg) {
         AVFormatContext *fmt_ctx;
         AVIOContext *avio_ctx;
         AVPacket pkt;
         struct AVIOContextInfo info;
-        printf("Writing segment, size: %zu\n", seg->size);
+        printf("Writing segment, size: %zu, id: %d, client id: %d ofmt_ctx: %p, pb: %p\n", seg->size, seg->id, c->id, c->ofmt_ctx, c->ofmt_ctx->pb); // 0: 0xbf0600 1: 0xbf0600 0x1edf340 0x1e5f600
         buffer_set_state(c->buffer, BUSY);
         info.buf = seg->buf;
         info.left = seg->size;
@@ -201,7 +203,7 @@ void write_segment(struct Client *c)
             pkt.dts = seg->ts[pkt_count];
             pkt.pts = seg->ts[pkt_count + 1];
             pkt_count += 2;
-            //log_packet(fmt_ctx, &pkt);
+            log_packet(fmt_ctx, &pkt);
             av_write_frame(c->ofmt_ctx, &pkt);
             printf("wrote frame to client\n");
         }
@@ -217,6 +219,7 @@ void *accept_thread(void *arg)
 {
     struct AcceptInfo *info = (struct AcceptInfo*) arg;
     const char *out_uri = info->out_uri;
+    char *method;
     AVIOContext *client;
     AVIOContext *server = NULL;
     AVFormatContext *ofmt_ctx;
@@ -225,14 +228,14 @@ void *accept_thread(void *arg)
     AVDictionary *mkvoptions = NULL;
     AVStream *in_stream, *out_stream;
     AVCodecContext *codec_ctx;
-    int ret, i, reply_code;
+    int ret, i, reply_code, handshake;
 
     if ((ret = av_dict_set(&options, "listen", "2", 0)) < 0) {
         fprintf(stderr, "Failed to set listen mode for server: %s\n", av_err2str(ret));
         return NULL;
     }
 
-    if ((ret = av_dict_set_int(&options, "listen_timeout", 500, 0)) < 0) {
+    if ((ret = av_dict_set_int(&options, "listen_timeout", 1000, 0)) < 0) {
         fprintf(stderr, "Failed to set listen timeout for server: %s\n", av_err2str(ret));
         return NULL;
     }
@@ -251,6 +254,7 @@ void *accept_thread(void *arg)
 /*        if (buffer->eos)
             break; */
         reply_code = 200;
+        usleep(1000);
         printf("Accepting new clients...\n");
         client = NULL;
         if ((ret = avio_accept(server, &client)) < 0) {
@@ -258,8 +262,8 @@ void *accept_thread(void *arg)
             printf("ret: %d\n", ret);
             continue;
         }
-        printf("No error or timeout\n");
-        printf("ret: %d\n", ret);
+        //printf("No error or timeout\n");
+        //printf("ret: %d\n", ret);
 
 
         // Append client to client list
@@ -272,22 +276,32 @@ void *accept_thread(void *arg)
             printf("No more slots free\n");
             reply_code = 503;
         }
+
+        while ((handshake = avio_handshake(client)) > 0) {
+            av_opt_get(client, "method", AV_OPT_SEARCH_CHILDREN, &method);
+            printf("method: %s\n", method);
+            if (method && strlen(method) && strncmp("GET", method, 3)) {
+                reply_code = 400;
+            }
+        }
+
+        if (handshake < 0) {
+            reply_code = 400;
+        }
+
         if ((ret = av_opt_set_int(client, "reply_code", reply_code, AV_OPT_SEARCH_CHILDREN)) < 0) {
             av_log(client, AV_LOG_ERROR, "Failed to set reply_code: %s.\n", av_err2str(ret));
             continue;
         }
-        while ((ret = avio_handshake(client)) > 0);
-        if (ret < 0) {
-            avio_close(client);
-            continue;
-        }
 
-        if (reply_code == 503) {
+        if (reply_code != 200) {
+            publisher_cancel_reserve(info->pub);
             avio_close(client);
             continue;
         }
 
         avformat_alloc_output_context2(&ofmt_ctx, NULL, "matroska", NULL);
+        printf("allocated new ofmt_ctx: %p\n", ofmt_ctx);
 
         if (!ofmt_ctx) {
             fprintf(stderr, "Could not create output context\n");
@@ -323,11 +337,12 @@ void *accept_thread(void *arg)
         ofmt_ctx->pb = client;
         ret = avformat_write_header(ofmt_ctx, &mkvoptions);
         if (ret < 0) {
-            fprintf(stderr, "Error occurred when opening output file\n");
+            fprintf(stderr, "Error occurred when opening output output\n");
             continue;
         }
         publisher_add_client(info->pub, ofmt_ctx);
-        printf("Accepted new client!\n");
+        ofmt_ctx = NULL;
+        printf("Accepted new client! ofmt_ctx: %p pb: %p\n", ofmt_ctx, client);
 
     }
 
@@ -345,7 +360,7 @@ void *write_thread(void *arg)
         printf("Checking clients\n");
         for (i = 0; i < MAX_CLIENTS; i++) {
             c = &info->pub->subscribers[i];
-            client_print(c);
+            //client_print(c);
             switch(c->buffer->state) {
             case WRITABLE:
                 write_segment(c);

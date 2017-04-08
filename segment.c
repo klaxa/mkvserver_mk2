@@ -53,7 +53,7 @@ int segment_write(void *opaque, unsigned char *buf, int buf_size)
     //return fwrite(buf, buf_size, 1, seg->stream);
     seg->size += buf_size;
     seg->buf = (char*) realloc(seg->buf, seg->size);
-    printf("buf:%p size:%zu\n", seg->buf, seg->size);
+    //printf("buf:%p size:%zu\n", seg->buf, seg->size);
     memcpy(seg->buf + seg->size - buf_size, buf, buf_size);
     return buf_size;
 }
@@ -69,7 +69,7 @@ int segment_read(void *opaque, unsigned char *buf, int buf_size)
     struct AVIOContextInfo *info = (struct AVIOContextInfo*) opaque;
     buf_size = buf_size < info->left ? buf_size : info->left;
 
-    printf("buf:%p left:%d\n", info->buf, info->left);
+    //printf("buf:%p left:%d\n", info->buf, info->left);
     /* copy internal buffer data to buf */
     memcpy(buf, info->buf, buf_size);
     info->buf  += buf_size;

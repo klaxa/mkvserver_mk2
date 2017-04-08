@@ -4,7 +4,7 @@
 #include <libavformat/avformat.h>
 #include "buffer.h"
 
-#define MAX_CLIENTS 5
+#define MAX_CLIENTS 16
 #define BUFFER_SEGMENTS 3
 
 struct Client {
@@ -18,6 +18,7 @@ struct Client {
 struct PublisherContext {
     struct Client subscribers[MAX_CLIENTS];
     struct Buffer *buffer;
+    struct Buffer *fs_buffer; // fast start buffer;
     int nb_threads;
 };
 
@@ -27,6 +28,8 @@ void client_print(struct Client *c);
 void publisher_init(struct PublisherContext **pub);
 
 int publisher_reserve_client(struct PublisherContext *pub);
+
+void publisher_cancel_reserve(struct PublisherContext *pub);
 
 void publisher_add_client(struct PublisherContext *pub, AVFormatContext *ofmt_ctx);
 

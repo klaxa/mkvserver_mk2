@@ -36,12 +36,14 @@ void publisher_init(struct PublisherContext **pub)
     *pub = (struct PublisherContext*) malloc(sizeof(struct PublisherContext));
     (*pub)->nb_threads = 4;
     (*pub)->buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
+    (*pub)->fs_buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
     buffer_init((*pub)->buffer);
+    buffer_init((*pub)->fs_buffer);
     for(i = 0; i < MAX_CLIENTS; i++) {
         struct Client *c = &(*pub)->subscribers[i];
         c->buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
         buffer_init(c->buffer);
-        c->id = -1;
+        c->id = i;
     }
 
     return;
@@ -62,6 +64,21 @@ int publisher_reserve_client(struct PublisherContext *pub)
     return 1;
 }
 
+void publisher_cancel_reserve(struct PublisherContext *pub)
+{
+    int i;
+    for(i = 0; i < MAX_CLIENTS; i++) {
+        switch(pub->subscribers[i].buffer->state) {
+        case RESERVED:
+            buffer_set_state(pub->subscribers[i].buffer, FREE);
+            return;
+        default:
+            continue;
+        }
+    }
+    return;
+}
+
 void publisher_add_client(struct PublisherContext *pub, AVFormatContext *ofmt_ctx)
 {
     int i, j;
@@ -69,15 +86,17 @@ void publisher_add_client(struct PublisherContext *pub, AVFormatContext *ofmt_ct
     for(i = 0; i < MAX_CLIENTS; i++) {
         switch(pub->subscribers[i].buffer->state) {
         case RESERVED:
+            printf("Put new client at %d, ofmt_ctx: %p pb: %p\n", i, ofmt_ctx, ofmt_ctx->pb);
             pub->subscribers[i].ofmt_ctx = ofmt_ctx;
             pub->subscribers[i].avio_buffer = (unsigned char*) av_malloc(AV_BUFSIZE);
             buffer_set_state(pub->subscribers[i].buffer, WRITABLE);
-            /*for (j = BUFFER_SEGMENTS; j > 0; j--) {
-                if ((prebuffer_seg = buffer_get_segment_at(pub->buffer, pub->buffer->write - j))) {
+            for (j = 0; j < BUFFER_SEGMENTS; j++) {
+                if ((prebuffer_seg = buffer_get_segment_at(pub->fs_buffer, pub->fs_buffer->read + j))) {
                     buffer_push_segment(pub->subscribers[i].buffer, prebuffer_seg);
                     printf("pushed prebuffer segment.\n");
                 }
-            } */
+            }
+            return;
         default:
             continue;
         }
@@ -115,9 +134,11 @@ void publish(struct PublisherContext *pub)
 
             }
         }
+        buffer_push_segment(pub->fs_buffer, seg);
     }
-    //if (pub->buffer->nb_segs == BUFFER_SEGMENTS) {
-        buffer_drop_segment(pub->buffer);
-        printf("Dropping segment from prebuffer buffer\n.");
-    //}
+    buffer_drop_segment(pub->buffer);
+    if (pub->fs_buffer->nb_segs == BUFFER_SEGMENTS) {
+        buffer_drop_segment(pub->fs_buffer);
+        printf("Dropped segment from prebuffer buffer.\n");
+    }
 }
