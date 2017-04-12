@@ -39,7 +39,12 @@ void client_disconnect(struct Client *c)
     return;
 }
 
-
+void client_set_state(struct Client *c, enum State state)
+{
+    pthread_mutex_lock(&c->state_lock);
+    c->state = state;
+    pthread_mutex_unlock(&c->state_lock);
+}
 
 void publisher_init(struct PublisherContext **pub)
 {
@@ -57,6 +62,7 @@ void publisher_init(struct PublisherContext **pub)
         buffer_init(c->buffer);
         c->id = i;
         c->current_segment_id = -1;
+        client_set_state(c, FREE);
     }
 
     return;
@@ -103,6 +109,7 @@ void publisher_add_client(struct PublisherContext *pub, AVFormatContext *ofmt_ct
             pub->subscribers[i].ofmt_ctx = ofmt_ctx;
             pub->subscribers[i].avio_buffer = (unsigned char*) av_malloc(AV_BUFSIZE);
             buffer_set_state(pub->subscribers[i].buffer, WRITABLE);
+            client_set_state(&pub->subscribers[i], WRITABLE);
             for (j = 0; j < BUFFER_SEGMENTS; j++) {
                 if ((prebuffer_seg = buffer_get_segment_at(pub->fs_buffer, pub->fs_buffer->read + j))) {
                     buffer_push_segment(pub->subscribers[i].buffer, prebuffer_seg);

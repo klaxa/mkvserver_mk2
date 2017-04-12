@@ -173,6 +173,7 @@ void write_segment(struct Client *c)
         AVIOContext *avio_ctx;
         AVPacket pkt;
         struct AVIOContextInfo info;
+        client_set_state(c, BUSY);
         c->current_segment_id = seg->id;
         printf("Writing segment, size: %zu, id: %d, client id: %d ofmt_ctx: %p, pb: %p\n", seg->size, seg->id, c->id, c->ofmt_ctx, c->ofmt_ctx->pb); // 0: 0xbf0600 1: 0xbf0600 0x1edf340 0x1e5f600
         info.buf = seg->buf;
@@ -219,6 +220,7 @@ void write_segment(struct Client *c)
         }
         avformat_close_input(&fmt_ctx);
         buffer_drop_segment(c->buffer);
+        client_set_state(c, WRITABLE);
     } else {
         buffer_set_state(c->buffer, WAIT);
     }
@@ -386,7 +388,7 @@ void *write_thread(void *arg)
         for (i = 0; i < MAX_CLIENTS; i++) {
             c = &info->pub->subscribers[i];
             //client_print(c);
-            switch(c->buffer->state) {
+            switch(c->state) {
             case WRITABLE:
                 write_segment(c);
             default:
@@ -403,8 +405,9 @@ int main(int argc, char *argv[])
     struct AcceptInfo ainfo;
     struct WriteInfo winfo;
     struct PublisherContext *pub;
-    int ret;
-    pthread_t r_thread, a_thread, w_thread;
+    int ret, i;
+    pthread_t r_thread, a_thread;
+    pthread_t *w_threads;
 
     AVFormatContext *ifmt_ctx = NULL;
 
@@ -425,10 +428,14 @@ int main(int argc, char *argv[])
     ainfo.pub = pub;
 
     winfo.pub = pub;
+    w_threads = (pthread_t*) malloc(sizeof(pthread_t) * pub->nb_threads);
 
     //pthread_create(&a_thread, NULL, accept_thread, &ainfo);
-    pthread_create(&w_thread, NULL, write_thread, &winfo);
     pthread_create(&r_thread, NULL, read_thread, &rinfo);
+    for (i = 0; i < pub->nb_threads; i++) {
+        pthread_create(&w_threads[i], NULL, write_thread, &winfo);
+    }
+
     //write_thread(&winfo);
     accept_thread(&ainfo);
     //read_thread(&rinfo);

@@ -11,6 +11,8 @@ struct Client {
     struct AVFormatContext *ofmt_ctx;
     struct Buffer *buffer;
     unsigned char *avio_buffer;
+    enum State state;
+    pthread_mutex_t state_lock;
     int id;
     int current_segment_id;
 };
@@ -28,6 +30,9 @@ struct PublisherContext {
 void client_print(struct Client *c);
 
 void client_disconnect(struct Client *c);
+
+void client_set_state(struct Client *c, enum State state);
+
 
 void publisher_init(struct PublisherContext **pub);
 
