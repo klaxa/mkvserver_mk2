@@ -4,23 +4,23 @@ void client_print(struct Client *c)
 {
     printf("State: ");
     switch(c->buffer->state) {
-    case WRITABLE:
-        printf("WRITABLE");
+    case FREE:
+        printf("FREE");
+        break;
+    case RESERVED:
+        printf("RESERVED");
         break;
     case WAIT:
         printf("WAIT");
+        break;
+    case WRITABLE:
+        printf("WRITABLE");
         break;
     case BUSY:
         printf("BUSY");
         break;
     case BUFFER_FULL:
         printf("BUFFER_FULL");
-        break;
-    case FREE:
-        printf("FREE");
-        break;
-    case RESERVED:
-        printf("RESERVED");
         break;
     default:
         printf("LOL");
@@ -29,12 +29,24 @@ void client_print(struct Client *c)
     printf("\n");
 }
 
+void client_disconnect(struct Client *c)
+{
+    av_write_trailer(c->ofmt_ctx);
+    avio_close(c->ofmt_ctx->pb);
+    avformat_free_context(c->ofmt_ctx);
+    buffer_free(c->buffer);
+    buffer_init(c->buffer);
+    return;
+}
+
+
 
 void publisher_init(struct PublisherContext **pub)
 {
     int i;
     *pub = (struct PublisherContext*) malloc(sizeof(struct PublisherContext));
     (*pub)->nb_threads = 4;
+    (*pub)->current_segment_id = -1;
     (*pub)->buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
     (*pub)->fs_buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
     buffer_init((*pub)->buffer);
@@ -44,6 +56,7 @@ void publisher_init(struct PublisherContext **pub)
         c->buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
         buffer_init(c->buffer);
         c->id = i;
+        c->current_segment_id = -1;
     }
 
     return;
@@ -120,6 +133,7 @@ void publish(struct PublisherContext *pub)
     int i;
     struct Segment *seg = buffer_peek_segment(pub->buffer);
     if (seg) {
+        pub->current_segment_id = seg->id;
         for (i = 0; i < MAX_CLIENTS; i++) {
             switch(pub->subscribers[i].buffer->state) {
             case BUFFER_FULL:
@@ -141,4 +155,53 @@ void publish(struct PublisherContext *pub)
         buffer_drop_segment(pub->fs_buffer);
         printf("Dropped segment from prebuffer buffer.\n");
     }
+}
+
+char *publisher_gen_status_json(struct PublisherContext *pub)
+{
+    int nb_free = 0, nb_reserved = 0, nb_wait = 0, nb_writable = 0, nb_busy = 0, nb_buffer_full = 0, current_read = 0, newest_write = 0, oldest_write = 0;
+    int i;
+    struct Client *c;
+    char *status = (char*) malloc(sizeof(char)* 4096);
+
+
+    current_read = pub->current_segment_id;
+    oldest_write = current_read;
+
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        c = &pub->subscribers[i];
+        if (c->current_segment_id > 0 && c->current_segment_id < oldest_write) {
+            oldest_write = c->current_segment_id;
+        }
+        if (c->current_segment_id > newest_write) {
+            newest_write = c->current_segment_id;
+        }
+
+        switch(c->buffer->state) {
+        case FREE:
+            nb_free++;
+            continue;
+        case RESERVED:
+            nb_reserved++;
+            continue;
+        case WAIT:
+            nb_wait++;
+            continue;
+        case WRITABLE:
+            nb_writable++;
+            continue;
+        case BUSY:
+            nb_busy++;
+            continue;
+        case BUFFER_FULL:
+            nb_buffer_full++;
+            continue;
+        default:
+            continue;
+        }
+    }
+
+
+    snprintf(status, 4095, "{\n\t\"free\": %d,\n\t\"reserved\": %d,\n\t\"wait\": %d,\n\t\"writable\": %d,\n\t\"busy\": %d\n\t\"buffer_full\": %d\n\t\"current_read\": %d\n\t\"newest_write\": %d\n\t\"oldest_write\": %d\n}\n", nb_free, nb_reserved, nb_wait, nb_writable, nb_busy, nb_buffer_full, current_read, newest_write, oldest_write);
+    return status;
 }

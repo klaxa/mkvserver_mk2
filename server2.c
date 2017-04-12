@@ -129,10 +129,10 @@ void *read_thread(void *arg)
                 printf("New segment pushed.\n");
                 publish(info->pub);
             }
-            printf("starting new segment");
+            printf("starting new segment\n");
             segment_init(&seg, ifmt_ctx);
             seg->id = id++;
-            printf(" id = %d\n", id);
+            printf("segment id = %d\n", seg->id);
         }
         //printf("writing frame\n");
         segment_ts_append(seg, pkt.dts, pkt.pts);
@@ -169,8 +169,9 @@ void write_segment(struct Client *c)
         AVIOContext *avio_ctx;
         AVPacket pkt;
         struct AVIOContextInfo info;
-        printf("Writing segment, size: %zu, id: %d, client id: %d ofmt_ctx: %p, pb: %p\n", seg->size, seg->id, c->id, c->ofmt_ctx, c->ofmt_ctx->pb); // 0: 0xbf0600 1: 0xbf0600 0x1edf340 0x1e5f600
         buffer_set_state(c->buffer, BUSY);
+        c->current_segment_id = seg->id;
+        printf("Writing segment, size: %zu, id: %d, client id: %d ofmt_ctx: %p, pb: %p\n", seg->size, seg->id, c->id, c->ofmt_ctx, c->ofmt_ctx->pb); // 0: 0xbf0600 1: 0xbf0600 0x1edf340 0x1e5f600
         info.buf = seg->buf;
         info.left = seg->size;
 
@@ -199,14 +200,21 @@ void write_segment(struct Client *c)
             if (ret < 0) {
                 break;
             }
-            printf("read frame\n");
+            //printf("read frame\n");
             pkt.dts = seg->ts[pkt_count];
             pkt.pts = seg->ts[pkt_count + 1];
             pkt_count += 2;
-            log_packet(fmt_ctx, &pkt);
-            av_write_frame(c->ofmt_ctx, &pkt);
-            printf("wrote frame to client\n");
+            //log_packet(fmt_ctx, &pkt);
+            ret = av_write_frame(c->ofmt_ctx, &pkt);
+            if (ret < 0) {
+                printf("write_frame to client failed, disconnecting...\n");
+                avformat_close_input(&fmt_ctx);
+                client_disconnect(c);
+                return;
+            }
+            //printf("wrote frame to client\n");
         }
+        avformat_close_input(&fmt_ctx);
 
         buffer_drop_segment(c->buffer);
         buffer_set_state(c->buffer, WRITABLE);
@@ -219,7 +227,8 @@ void *accept_thread(void *arg)
 {
     struct AcceptInfo *info = (struct AcceptInfo*) arg;
     const char *out_uri = info->out_uri;
-    char *method;
+    char *status;
+    char *method, *resource;
     AVIOContext *client;
     AVIOContext *server = NULL;
     AVFormatContext *ofmt_ctx;
@@ -228,7 +237,7 @@ void *accept_thread(void *arg)
     AVDictionary *mkvoptions = NULL;
     AVStream *in_stream, *out_stream;
     AVCodecContext *codec_ctx;
-    int ret, i, reply_code, handshake;
+    int ret, i, reply_code, handshake, return_status;
 
     if ((ret = av_dict_set(&options, "listen", "2", 0)) < 0) {
         fprintf(stderr, "Failed to set listen mode for server: %s\n", av_err2str(ret));
@@ -253,8 +262,10 @@ void *accept_thread(void *arg)
     for (;;) {
 /*        if (buffer->eos)
             break; */
+        status = publisher_gen_status_json(info->pub);
+        printf(status);
+        free(status);
         reply_code = 200;
-        usleep(1000);
         printf("Accepting new clients...\n");
         client = NULL;
         if ((ret = avio_accept(server, &client)) < 0) {
@@ -268,6 +279,7 @@ void *accept_thread(void *arg)
 
         // Append client to client list
         client->seekable = 0;
+        return_status = 0;
         if ((ret = av_dict_set(&mkvoptions, "live", "1", 0)) < 0) {
             fprintf(stderr, "Failed to set live mode for matroska: %s\n", av_err2str(ret));
             return NULL;
@@ -279,10 +291,16 @@ void *accept_thread(void *arg)
 
         while ((handshake = avio_handshake(client)) > 0) {
             av_opt_get(client, "method", AV_OPT_SEARCH_CHILDREN, &method);
-            printf("method: %s\n", method);
+            av_opt_get(client, "resource", AV_OPT_SEARCH_CHILDREN, &resource);
+            printf("method: %s resource: %s\n", method, resource);
             if (method && strlen(method) && strncmp("GET", method, 3)) {
                 reply_code = 400;
             }
+            if (resource && strlen(resource) && !strncmp("/status", resource, 7)) {
+                return_status = 1;
+            }
+            free(method);
+            free(resource);
         }
 
         if (handshake < 0) {
@@ -296,6 +314,11 @@ void *accept_thread(void *arg)
 
         if (reply_code != 200) {
             publisher_cancel_reserve(info->pub);
+            avio_close(client);
+            continue;
+        }
+
+        if (return_status) {
             avio_close(client);
             continue;
         }
@@ -317,6 +340,7 @@ void *accept_thread(void *arg)
             codec_ctx = avcodec_alloc_context3(NULL);
             avcodec_parameters_to_context(codec_ctx, in_stream->codecpar);
             out_stream = avformat_new_stream(ofmt_ctx, codec_ctx->codec);
+            av_free(codec_ctx);
             //avcodec_parameters_to_context(out_stream->codec, in_stream->codecpar);
             if (!out_stream) {
                 fprintf(stdout, "Failed allocating output stream\n");
@@ -395,7 +419,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    ainfo.out_uri = "http://127.0.0.1:8080";
+    ainfo.out_uri = "http://0:8080";
     ainfo.ifmt_ctx = ifmt_ctx;
     ainfo.pub = pub;
 

@@ -15,8 +15,11 @@ void save_segment(struct Segment *seg, const char *filename)
 void segment_free(struct Segment *seg)
 {
     printf("Freeing segment\n");
+    avformat_free_context(seg->fmt_ctx);
+    av_free(seg->io_ctx);
     free(seg->buf);
     free(seg->ts);
+    free(seg);
 }
 
 void segment_ref(struct Segment *seg)
@@ -134,7 +137,7 @@ void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
             avcodec_parameters_to_context(codec_ctx, in_stream->codecpar);
             out_stream = avformat_new_stream(seg->fmt_ctx, codec_ctx->codec);
             //avcodec_parameters_to_context(out_stream->codec, in_stream->codecpar);
-            //av_free(codec_ctx);
+            av_free(codec_ctx);
             if (!out_stream) {
                 fprintf(stdout, "Failed allocating output stream\n");
                 continue;
@@ -145,7 +148,7 @@ void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
                 continue;
             }
             av_dict_copy(&out_stream->metadata, in_stream->metadata, 0);
-            printf("Allocated output stream.\n");
+            //printf("Allocated output stream.\n");
             /*out_stream->codec->codec_tag = 0;
             if (ofmt_ctx->oformat->flags & AVFMT_GLOBALHEADER)
                 out_stream->codec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER; */
@@ -160,8 +163,9 @@ void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
         fprintf(stderr, "Error occured while writing header: %s\n", av_err2str(ret));
     }
 
+
     printf("Initialized segment.\n");
-    av_dump_format(seg->fmt_ctx, 0, "(memory)", 1);
+    //av_dump_format(seg->fmt_ctx, 0, "(memory)", 1);
 
     *seg_p = seg;
 

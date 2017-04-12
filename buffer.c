@@ -83,9 +83,5 @@ struct Segment *buffer_get_segment_at(struct Buffer *buffer, int pos)
 
 void buffer_free(struct Buffer *buffer)
 {
-    int i;
-    for (i = 0; i < MAX_SEGMENTS; i++) {
-        if (buffer->buffer[i])
-            segment_unref(buffer->buffer[i]);
-    }
+    while (buffer_pop_segment(buffer));
 }

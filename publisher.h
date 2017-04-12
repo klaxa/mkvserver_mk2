@@ -12,6 +12,7 @@ struct Client {
     struct Buffer *buffer;
     unsigned char *avio_buffer;
     int id;
+    int current_segment_id;
 };
 
 
@@ -20,10 +21,13 @@ struct PublisherContext {
     struct Buffer *buffer;
     struct Buffer *fs_buffer; // fast start buffer;
     int nb_threads;
+    int current_segment_id;
 };
 
 
 void client_print(struct Client *c);
+
+void client_disconnect(struct Client *c);
 
 void publisher_init(struct PublisherContext **pub);
 
@@ -36,5 +40,7 @@ void publisher_add_client(struct PublisherContext *pub, AVFormatContext *ofmt_ct
 void publisher_free(struct PublisherContext *pub);
 
 void publish(struct PublisherContext *pub);
+
+char *publisher_gen_status_json(struct PublisherContext *pub);
 
 #endif // PUBLISHER_H
