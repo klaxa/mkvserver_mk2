@@ -5,7 +5,7 @@
 #include "buffer.h"
 
 #define MAX_CLIENTS 16
-#define BUFFER_SEGMENTS 3
+#define BUFFER_SEGMENTS 10
 
 struct Client {
     struct AVFormatContext *ofmt_ctx;

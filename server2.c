@@ -13,7 +13,7 @@
 #include "buffer.h"
 #include "publisher.h"
 
-#define BUFFER_SECS 10
+#define BUFFER_SECS 30
 
 
 struct ReadInfo {
@@ -156,6 +156,10 @@ end:
         fprintf(stderr, "Error occurred: %s\n", av_err2str(ret));
     }
 
+    // signal to everyone else that the stream ended
+
+
+
     return NULL;
 }
 
@@ -169,7 +173,6 @@ void write_segment(struct Client *c)
         AVIOContext *avio_ctx;
         AVPacket pkt;
         struct AVIOContextInfo info;
-        buffer_set_state(c->buffer, BUSY);
         c->current_segment_id = seg->id;
         printf("Writing segment, size: %zu, id: %d, client id: %d ofmt_ctx: %p, pb: %p\n", seg->size, seg->id, c->id, c->ofmt_ctx, c->ofmt_ctx->pb); // 0: 0xbf0600 1: 0xbf0600 0x1edf340 0x1e5f600
         info.buf = seg->buf;
@@ -215,9 +218,7 @@ void write_segment(struct Client *c)
             //printf("wrote frame to client\n");
         }
         avformat_close_input(&fmt_ctx);
-
         buffer_drop_segment(c->buffer);
-        buffer_set_state(c->buffer, WRITABLE);
     } else {
         buffer_set_state(c->buffer, WAIT);
     }
