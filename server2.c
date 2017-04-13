@@ -122,7 +122,6 @@ void *read_thread(void *arg)
 
         if ((pkt.flags & AV_PKT_FLAG_KEY && pkt.stream_index == video_idx) || !seg) {
             if (seg) {
-                char filename[100];
                 segment_close(seg);
                 buffer_push_segment(info->pub->buffer, seg);
                 printf("New segment pushed.\n");
@@ -448,7 +447,7 @@ int main(int argc, char *argv[])
     ainfo.pub = pub;
 
     w_threads = (pthread_t*) malloc(sizeof(pthread_t) * pub->nb_threads);
-    winfos = (struct WriteInfo*) malloc(sizeof(struct WriteInfo));
+    winfos = (struct WriteInfo*) malloc(sizeof(struct WriteInfo) * pub->nb_threads);
 
     //pthread_create(&a_thread, NULL, accept_thread, &ainfo);
     pthread_create(&r_thread, NULL, read_thread, &rinfo);
@@ -468,9 +467,10 @@ int main(int argc, char *argv[])
         pthread_join(w_threads[i], NULL);
     }
 
-
+    avformat_close_input(&ifmt_ctx);
     publisher_free(pub);
     free(pub->buffer);
+    free(pub->fs_buffer);
     free(pub);
     return 0;
 

@@ -132,6 +132,7 @@ void publisher_free(struct PublisherContext *pub)
 {
     int i;
     buffer_free(pub->buffer);
+    buffer_free(pub->fs_buffer);
     for(i = 0; i < MAX_CLIENTS; i++) {
         struct Client *c = &pub->subscribers[i];
         buffer_free(c->buffer);

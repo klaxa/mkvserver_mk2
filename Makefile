@@ -3,9 +3,6 @@ all: server segment-test
 server: segment.o buffer.o publisher.o server2.c
 	gcc -g -Wall -L/usr/local/lib -lavcodec -lavformat -lavutil -lpthread -o server segment.o buffer.o publisher.o server2.c
 
-segment-test: segment.o buffer.o publisher.o segment-test.c
-	gcc -g -Wall -L/usr/local/lib -lavcodec -lavformat -lavutil -lpthread -o segment-test segment.o buffer.o publisher.o segment-test.c
-
 segment.o: segment.c segment.h
 	gcc -g -Wall -L/usr/local/lib -lavcodec -lavformat -lavutil -lpthread -c segment.c
 
