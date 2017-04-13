@@ -36,6 +36,8 @@ void client_disconnect(struct Client *c)
     avformat_free_context(c->ofmt_ctx);
     buffer_free(c->buffer);
     buffer_init(c->buffer);
+    client_set_state(c, FREE);
+    c->current_segment_id = -1;
     return;
 }
 
@@ -62,6 +64,7 @@ void publisher_init(struct PublisherContext **pub)
         buffer_init(c->buffer);
         c->id = i;
         c->current_segment_id = -1;
+        pthread_mutex_init(&c->state_lock, NULL);
         client_set_state(c, FREE);
     }
 

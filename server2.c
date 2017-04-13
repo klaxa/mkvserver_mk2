@@ -137,6 +137,7 @@ void *read_thread(void *arg)
         //printf("writing frame\n");
         segment_ts_append(seg, pkt.dts, pkt.pts);
         ret = av_write_frame(seg->fmt_ctx, &pkt);
+        av_packet_unref(&pkt);
         if (ret < 0) {
             printf("write frame failed\n");
         }
@@ -210,6 +211,7 @@ void write_segment(struct Client *c)
             pkt_count += 2;
             //log_packet(fmt_ctx, &pkt);
             ret = av_write_frame(c->ofmt_ctx, &pkt);
+            av_packet_unref(&pkt);
             if (ret < 0) {
                 printf("write_frame to client failed, disconnecting...\n");
                 avformat_close_input(&fmt_ctx);
@@ -219,6 +221,8 @@ void write_segment(struct Client *c)
             //printf("wrote frame to client\n");
         }
         avformat_close_input(&fmt_ctx);
+        avformat_free_context(fmt_ctx);
+        av_free(avio_ctx);
         buffer_drop_segment(c->buffer);
         client_set_state(c, WRITABLE);
     } else {
@@ -343,7 +347,7 @@ void *accept_thread(void *arg)
             codec_ctx = avcodec_alloc_context3(NULL);
             avcodec_parameters_to_context(codec_ctx, in_stream->codecpar);
             out_stream = avformat_new_stream(ofmt_ctx, codec_ctx->codec);
-            av_free(codec_ctx);
+            avcodec_free_context(&codec_ctx);
             //avcodec_parameters_to_context(out_stream->codec, in_stream->codecpar);
             if (!out_stream) {
                 fprintf(stdout, "Failed allocating output stream\n");

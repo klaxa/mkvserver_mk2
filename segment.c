@@ -16,6 +16,7 @@ void segment_free(struct Segment *seg)
 {
     printf("Freeing segment\n");
     avformat_free_context(seg->fmt_ctx);
+    av_free(seg->io_ctx->buffer);
     av_free(seg->io_ctx);
     free(seg->buf);
     free(seg->ts);
@@ -137,7 +138,7 @@ void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
             avcodec_parameters_to_context(codec_ctx, in_stream->codecpar);
             out_stream = avformat_new_stream(seg->fmt_ctx, codec_ctx->codec);
             //avcodec_parameters_to_context(out_stream->codec, in_stream->codecpar);
-            av_free(codec_ctx);
+            avcodec_free_context(&codec_ctx);
             if (!out_stream) {
                 fprintf(stdout, "Failed allocating output stream\n");
                 continue;
