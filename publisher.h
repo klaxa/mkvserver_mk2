@@ -24,6 +24,7 @@ struct PublisherContext {
     struct Buffer *fs_buffer; // fast start buffer;
     int nb_threads;
     int current_segment_id;
+    int shutdown;
 };
 
 

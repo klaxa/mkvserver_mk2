@@ -23,6 +23,7 @@ struct ReadInfo {
 
 struct WriteInfo {
     struct PublisherContext *pub;
+    int thread_id;
 };
 
 struct AcceptInfo {
@@ -123,8 +124,6 @@ void *read_thread(void *arg)
             if (seg) {
                 char filename[100];
                 segment_close(seg);
-                sprintf(filename, "segment-%03d.mkv", id);
-                save_segment(seg, filename);
                 buffer_push_segment(info->pub->buffer, seg);
                 printf("New segment pushed.\n");
                 publish(info->pub);
@@ -144,6 +143,9 @@ void *read_thread(void *arg)
 
     }
     segment_close(seg);
+    buffer_push_segment(info->pub->buffer, seg);
+    printf("Finals segment pushed.\n");
+    publish(info->pub);
 
 end:
 
@@ -158,8 +160,7 @@ end:
     }
 
     // signal to everyone else that the stream ended
-
-
+    info->pub->shutdown = 1;
 
     return NULL;
 }
@@ -267,8 +268,8 @@ void *accept_thread(void *arg)
     }
 
     for (;;) {
-/*        if (buffer->eos)
-            break; */
+        if (info->pub->shutdown)
+            break;
         status = publisher_gen_status_json(info->pub);
         printf(status);
         free(status);
@@ -289,7 +290,7 @@ void *accept_thread(void *arg)
         return_status = 0;
         if ((ret = av_dict_set(&mkvoptions, "live", "1", 0)) < 0) {
             fprintf(stderr, "Failed to set live mode for matroska: %s\n", av_err2str(ret));
-            return NULL;
+            continue;
         }
         if (publisher_reserve_client(info->pub)) {
             printf("No more slots free\n");
@@ -377,6 +378,9 @@ void *accept_thread(void *arg)
 
     }
 
+    avio_close(server);
+    printf("Shut down http server.\n");
+
     return NULL;
 }
 
@@ -384,22 +388,34 @@ void *accept_thread(void *arg)
 void *write_thread(void *arg)
 {
     struct WriteInfo *info = (struct WriteInfo*) arg;
-    int i;
+    int i, nb_free;
     struct Client *c;
     for (;;) {
+        nb_free = 0;
         usleep(500000);
-        printf("Checking clients\n");
+        printf("Checking clients, thread: %d\n", info->thread_id);
         for (i = 0; i < MAX_CLIENTS; i++) {
             c = &info->pub->subscribers[i];
             //client_print(c);
             switch(c->state) {
             case WRITABLE:
                 write_segment(c);
+
+                if (info->pub->shutdown && info->pub->current_segment_id == c->current_segment_id) {
+                    client_disconnect(c);
+                }
+                continue;
+            case FREE:
+                nb_free++;
+                continue;
             default:
                 continue;
             }
         }
+        if (info->pub->shutdown && nb_free == MAX_CLIENTS)
+            break;
     }
+
     return NULL;
 }
 
@@ -407,7 +423,7 @@ int main(int argc, char *argv[])
 {
     struct ReadInfo rinfo;
     struct AcceptInfo ainfo;
-    struct WriteInfo winfo;
+    struct WriteInfo *winfos;
     struct PublisherContext *pub;
     int ret, i;
     pthread_t r_thread, a_thread;
@@ -431,18 +447,27 @@ int main(int argc, char *argv[])
     ainfo.ifmt_ctx = ifmt_ctx;
     ainfo.pub = pub;
 
-    winfo.pub = pub;
     w_threads = (pthread_t*) malloc(sizeof(pthread_t) * pub->nb_threads);
+    winfos = (struct WriteInfo*) malloc(sizeof(struct WriteInfo));
 
     //pthread_create(&a_thread, NULL, accept_thread, &ainfo);
     pthread_create(&r_thread, NULL, read_thread, &rinfo);
     for (i = 0; i < pub->nb_threads; i++) {
-        pthread_create(&w_threads[i], NULL, write_thread, &winfo);
+        winfos[i].pub = pub;
+        winfos[i].thread_id = i;
+        pthread_create(&w_threads[i], NULL, write_thread, &winfos[i]);
     }
 
     //write_thread(&winfo);
     accept_thread(&ainfo);
     //read_thread(&rinfo);
+
+
+    pthread_join(r_thread, NULL);
+    for (i = 0; i < pub->nb_threads; i++) {
+        pthread_join(w_threads[i], NULL);
+    }
+
 
     publisher_free(pub);
     free(pub->buffer);

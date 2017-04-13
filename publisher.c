@@ -56,6 +56,7 @@ void publisher_init(struct PublisherContext **pub)
     (*pub)->current_segment_id = -1;
     (*pub)->buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
     (*pub)->fs_buffer = (struct Buffer*) malloc(sizeof(struct Buffer));
+    (*pub)->shutdown = 0;
     buffer_init((*pub)->buffer);
     buffer_init((*pub)->fs_buffer);
     for(i = 0; i < MAX_CLIENTS; i++) {
