@@ -23,7 +23,7 @@ user@example~$ ./server somevideo.mkv
 ```
 
 
-This will serve the file somevideo.mkv on localhost on port 8080 (so far only configurable in main.c) in real-time.
+This will serve the file somevideo.mkv on all interfaces on port 8080 (so far only configurable in server2.c) in real-time.
 
 You can also use stdin from a live feed for example:
 
@@ -53,17 +53,37 @@ On a client:
 user@example~$ ffmpeg -f x11grab -framerate 15 -s 1920x1080 -i :0.0 -c libx264 tcp://remote:12345
 ```
 
-(Remember to change the listening address in main.c from 127.0.0.1 otherwise nobody but local users will be able to watch)
-
 You will see the server writing some information, as it is still quite verbose (it was even more verbose in earlier versions for obvious reasons ;) ).
 
-This far nothing is implemented to handle the end of a file or a stream, so the server will loop and accept clients but never write anything to them.
+
+Architecture
+------------
+
+With the latest iteration more sophisticated data structures have been used.
+The following structs make up the architecture:
+
+Segment
+
+Contains a segment of data. A segment is always exactly one GOP, that implies segments always start at a keyframe.
+Segments are refcounted.
+
+BufferContext
+
+Circular buffer that manages segments and takes care of refcounting them.
+
+
+PublisherContext
+
+Holds a BufferContext for new segments and a BufferContext for old segments that should still be sent to new clients. This makes streams on clients start faster and stutter less.
+
+Also holds a list of Clients, which in turn have a BufferContext of segments that still have to be sent to the client.
+
 
 
 Dependencies
 ------------
 
-- FFmpeg at least commit FFmpeg/FFmpeg@d0be0cbebc207f3a39da2a668f45be413c9152c4 (contains fixes for ffmpeg's http server)
+- very recent ffmpeg libraries (some bugs in ffmpeg were found while writing this project)
 
 
 Todo
@@ -77,7 +97,7 @@ Todo
 Known issues
 ------------
 
- - still leaks some memory, I haven't found out where exactly and how to fix it
+ - still leaks very small amounts of memory (valgrind reports a few thousand bytes)
 
 Thanks
 ------
