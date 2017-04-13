@@ -1,4 +1,4 @@
-all: server segment-test
+all: server
 
 server: segment.o buffer.o publisher.o server2.c
 	gcc -g -Wall -L/usr/local/lib -lavcodec -lavformat -lavutil -lpthread -o server segment.o buffer.o publisher.o server2.c
