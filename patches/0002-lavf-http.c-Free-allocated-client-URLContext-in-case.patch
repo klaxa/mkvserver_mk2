@@ -1,0 +1,29 @@
+From 6571c942041a4a5f15d6aa8bdf9d32d7fb86547e Mon Sep 17 00:00:00 2001
+From: Stephan Holljes <klaxa1337@googlemail.com>
+Date: Mon, 10 Apr 2017 06:50:00 +0200
+Subject: [PATCH 2/3] lavf/http.c: Free allocated client URLContext in case of
+ error.
+
+---
+ libavformat/http.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/libavformat/http.c b/libavformat/http.c
+index 293a8a7..2917b6e 100644
+--- a/libavformat/http.c
++++ b/libavformat/http.c
+@@ -535,7 +535,11 @@ static int http_accept(URLContext *s, URLContext **c)
+         goto fail;
+     cc->hd = cl;
+     cc->is_multi_client = 1;
++    return 0;
+ fail:
++    if (c) {
++        ffurl_close(*c);
++    }
+     return ret;
+ }
+ 
+-- 
+2.9.3
+
