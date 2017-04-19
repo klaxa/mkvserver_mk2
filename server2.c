@@ -430,6 +430,11 @@ int main(int argc, char *argv[])
 
     AVFormatContext *ifmt_ctx = NULL;
 
+    if (argc != 2) {
+        printf("Usage: %s <filename>\n", argv[0]);
+        return 1;
+    }
+
     av_register_all();
     avformat_network_init();
 
