@@ -18,6 +18,7 @@
 
 struct ReadInfo {
     struct PublisherContext *pub;
+    AVFormatContext *ifmt_ctx;
     char *in_filename;
 };
 
@@ -46,7 +47,7 @@ void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt)
 void *read_thread(void *arg)
 {
     struct ReadInfo *info = (struct ReadInfo*) arg;
-    AVFormatContext *ifmt_ctx = NULL;
+    AVFormatContext *ifmt_ctx = info->ifmt_ctx;
     char *in_filename = info->in_filename;
     int ret;
     int i;
@@ -60,11 +61,6 @@ void *read_thread(void *arg)
     tb.num = 1;
     tb.den = AV_TIME_BASE;
 
-
-    if ((ret = avformat_open_input(&ifmt_ctx, in_filename, 0, 0))) {
-        fprintf(stderr, "Could not open stdin\n");
-        goto end;
-    }
 
     if ((ret = avformat_find_stream_info(ifmt_ctx, 0)) < 0) {
         fprintf(stderr, "Could not get input stream info\n");
@@ -430,24 +426,24 @@ int main(int argc, char *argv[])
 
     AVFormatContext *ifmt_ctx = NULL;
 
-    if (argc != 2) {
-        printf("Usage: %s <filename>\n", argv[0]);
-        return 1;
+    rinfo.in_filename = "pipe:0";
+    ainfo.out_uri = "http://0:8080";
+    if (argc > 1) {
+        rinfo.in_filename = argv[1];
     }
 
     av_register_all();
     avformat_network_init();
 
-    publisher_init(&pub);
-    rinfo.in_filename = argv[1];
-    rinfo.pub = pub;
-
-    if ((ret = avformat_open_input(&ifmt_ctx, argv[1], 0, 0))) {
-        fprintf(stderr, "Could not open stdin\n");
+    if ((ret = avformat_open_input(&ifmt_ctx, rinfo.in_filename, 0, 0))) {
+        fprintf(stderr, "main: Could not open stdin\n");
         return 1;
     }
 
-    ainfo.out_uri = "http://0:8080";
+    publisher_init(&pub);
+
+    rinfo.ifmt_ctx = ifmt_ctx;
+    rinfo.pub = pub;
     ainfo.ifmt_ctx = ifmt_ctx;
     ainfo.pub = pub;
 
