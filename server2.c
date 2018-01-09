@@ -218,7 +218,7 @@ void write_segment(struct Client *c)
         }
         avformat_close_input(&fmt_ctx);
         avformat_free_context(fmt_ctx);
-        av_free(avio_ctx);
+        avio_context_free(&avio_ctx);
         buffer_drop_segment(c->buffer);
         client_set_state(c, WRITABLE);
     } else {
