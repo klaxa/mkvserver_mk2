@@ -78,7 +78,7 @@ int segment_read(void *opaque, unsigned char *buf, int buf_size)
     memcpy(buf, info->buf, buf_size);
     info->buf  += buf_size;
     info->left -= buf_size;
-    return buf_size;
+    return buf_size ? buf_size : AVERROR_EOF;
 }
 
 
