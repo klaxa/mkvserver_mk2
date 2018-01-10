@@ -139,7 +139,7 @@ void *read_thread(void *arg)
     }
     segment_close(seg);
     buffer_push_segment(info->pub->buffer, seg);
-    printf("Finals segment pushed.\n");
+    printf("Final segment pushed.\n");
     publish(info->pub);
 
 end:
