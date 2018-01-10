@@ -182,17 +182,20 @@ void write_segment(struct Client *c)
             return;
         }
 
-        avio_ctx = avio_alloc_context(c->avio_buffer, AV_BUFSIZE, 0, &info, &segment_read, NULL, NULL);
+        unsigned char *avio_buffer = (unsigned char*) av_malloc(AV_BUFSIZE);
+        avio_ctx = avio_alloc_context(avio_buffer, AV_BUFSIZE, 0, &info, &segment_read, NULL, NULL);
 
         fmt_ctx->pb = avio_ctx;
         ret = avformat_open_input(&fmt_ctx, NULL, seg->ifmt, NULL);
         if (ret < 0) {
             fprintf(stderr, "Could not open input\n");
+            av_free(avio_ctx->buffer);
             return;
         }
         ret = avformat_find_stream_info(fmt_ctx, NULL);
         if (ret < 0) {
             fprintf(stderr, "Could not find stream information\n");
+            av_free(avio_ctx->buffer);
             return;
         }
 
@@ -211,12 +214,14 @@ void write_segment(struct Client *c)
             if (ret < 0) {
                 printf("write_frame to client failed, disconnecting...\n");
                 avformat_close_input(&fmt_ctx);
+                av_free(avio_ctx->buffer);
                 client_disconnect(c);
                 return;
             }
             //printf("wrote frame to client\n");
         }
         avformat_close_input(&fmt_ctx);
+        av_free(avio_ctx->buffer);
         avformat_free_context(fmt_ctx);
         avio_context_free(&avio_ctx);
         buffer_drop_segment(c->buffer);
@@ -468,7 +473,6 @@ int main(int argc, char *argv[])
         pthread_join(w_threads[i], NULL);
     }
 
-    avformat_close_input(&ifmt_ctx);
     publisher_free(pub);
     free(pub->buffer);
     free(pub->fs_buffer);

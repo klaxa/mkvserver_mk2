@@ -111,7 +111,6 @@ void publisher_add_client(struct PublisherContext *pub, AVFormatContext *ofmt_ct
         case RESERVED:
             printf("Put new client at %d, ofmt_ctx: %p pb: %p\n", i, ofmt_ctx, ofmt_ctx->pb);
             pub->subscribers[i].ofmt_ctx = ofmt_ctx;
-            pub->subscribers[i].avio_buffer = (unsigned char*) av_malloc(AV_BUFSIZE);
             buffer_set_state(pub->subscribers[i].buffer, WRITABLE);
             client_set_state(&pub->subscribers[i], WRITABLE);
             for (j = 0; j < BUFFER_SEGMENTS; j++) {

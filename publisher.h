@@ -10,7 +10,6 @@
 struct Client {
     struct AVFormatContext *ofmt_ctx;
     struct Buffer *buffer;
-    unsigned char *avio_buffer;
     enum State state;
     pthread_mutex_t state_lock;
     int id;
