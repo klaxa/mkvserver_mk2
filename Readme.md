@@ -88,10 +88,9 @@ Effectively this means that if BUFFER_SEGMENTS is set to 0, there will still be 
 Dependencies
 ------------
 
-- very recent ffmpeg libraries (some bugs in ffmpeg were found while writing this project)
-In fact so recent that you actually have to patch the current ffmpeg git-master and build from source. (As of 14th April 2017)
+- recent ffmpeg libraries
 
-git-format patches are in the "patches/" directory.
+(optional) git-format patches are in the "patches/" directory.
 
 
 Todo
