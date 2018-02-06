@@ -79,6 +79,11 @@ Holds a BufferContext for new segments and a BufferContext for old segments that
 Also holds a list of Clients, which in turn have a BufferContext of segments that still have to be sent to the client.
 
 
+When the server receives a file (through stdin or by specifying a file), the Publisher receives them as Segments. That means the Segment has to be read completely before it can be served to clients. Once it is in the Publisher's Buffer, it will be sent to clients. Additionally the Publisher keeps a number of Segments (publisher.h:BUFFER\_SEGMENTS) that will be sent to any client that connects. These Segments are the last Segments received. This was added to prevent players from hanging if the video being streamed has very different GOP sizes. To fill this Buffer, the server reads the first BUFFER\_SECS (server2.c) of the file regardless of timestamp information in the file.
+
+Effectively this means that if BUFFER_SEGMENTS is set to 0, there will still be at least a delay of one GOP. This constraint made implementation a lot safer as Segments are never written and read at the same time. Therefore in order to reduce latency, this constant should be defined to 0 and the keyframe-interval of the file should be short.
+
+
 
 Dependencies
 ------------
@@ -96,6 +101,7 @@ Todo
 - Configuration
 - Documentation
 - Management interface
+- Low-latency mode?
 
 Known issues
 ------------
