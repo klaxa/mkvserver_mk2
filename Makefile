@@ -20,4 +20,4 @@ publisher.o: publisher.c publisher.h
 	$(CC) -g -Wall $(LAV_CFLAGS) -pthread -c publisher.c
 
 clean:
-	rm *.o server
+	rm -f *.o server
