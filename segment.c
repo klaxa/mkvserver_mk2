@@ -103,7 +103,7 @@ void segment_close(struct Segment *seg)
 void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
 {
     int ret;
-    int i;
+    size_t i;
     AVStream *in_stream, *out_stream;
     AVCodecContext *codec_ctx;
     struct Segment *seg = (struct Segment*) malloc(sizeof(struct Segment));

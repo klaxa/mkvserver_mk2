@@ -48,9 +48,8 @@ void *read_thread(void *arg)
 {
     struct ReadInfo *info = (struct ReadInfo*) arg;
     AVFormatContext *ifmt_ctx = info->ifmt_ctx;
-    char *in_filename = info->in_filename;
     int ret;
-    int i;
+    size_t i;
     int video_idx;
     int id = 0;
     struct Segment *seg = NULL;
@@ -71,7 +70,7 @@ void *read_thread(void *arg)
     printf("Finding video stream.\n");
 
     for (i = 0; i < ifmt_ctx->nb_streams; i++) {
-        printf("Checking stream %d\n", i);
+        printf("Checking stream %zu\n", i);
         AVStream *stream = ifmt_ctx->streams[i];
         printf("Got stream\n");
         AVCodecContext *avctx = avcodec_alloc_context3(NULL);
@@ -245,7 +244,8 @@ void *accept_thread(void *arg)
     AVDictionary *mkvoptions = NULL;
     AVStream *in_stream, *out_stream;
     AVCodecContext *codec_ctx;
-    int ret, i, reply_code, handshake, return_status;
+    int ret, reply_code, handshake, return_status;
+    size_t i;
 
     if ((ret = av_dict_set(&options, "listen", "2", 0)) < 0) {
         fprintf(stderr, "Failed to set listen mode for server: %s\n", av_err2str(ret));
@@ -271,7 +271,7 @@ void *accept_thread(void *arg)
         if (info->pub->shutdown)
             break;
         status = publisher_gen_status_json(info->pub);
-        printf(status);
+        fputs(status, stdout);
         free(status);
         reply_code = 200;
         printf("Accepting new clients...\n");
@@ -426,7 +426,7 @@ int main(int argc, char *argv[])
     struct WriteInfo *winfos;
     struct PublisherContext *pub;
     int ret, i;
-    pthread_t r_thread, a_thread;
+    pthread_t r_thread;
     pthread_t *w_threads;
 
     AVFormatContext *ifmt_ctx = NULL;
