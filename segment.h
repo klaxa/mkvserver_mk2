@@ -2,6 +2,7 @@
 #define SEGMENT_H
 
 #include <libavformat/avformat.h>
+#include <pthread.h>
 
 #define AV_BUFSIZE 4096
 
