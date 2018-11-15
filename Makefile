@@ -8,7 +8,8 @@ LAV_CFLAGS = `pkg-config --cflags libavformat libavcodec libavutil`
 all: server
 
 server: segment.o buffer.o publisher.o server2.c
-	$(CC) -g -Wall $(LAV_CFLAGS) $(LAV_LDFLAGS) -pthread -o server segment.o buffer.o publisher.o server2.c
+	#$(CC) -g -Wall $(LAV_CFLAGS) $(LAV_LDFLAGS) -pthread -o server segment.o buffer.o publisher.o server2.c
+	$(CC) -g -Wall $(LAV_CFLAGS) -pthread -o server segment.o buffer.o publisher.o server2.c $(LAV_LDFLAGS)
 
 segment.o: segment.c segment.h
 	$(CC) -g -Wall $(LAV_CFLAGS) -pthread -c segment.c
