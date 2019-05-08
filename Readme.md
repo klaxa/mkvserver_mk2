@@ -50,7 +50,7 @@ user@remote~$ nc -l -p 12345 | ./server
 On a client:
 
 ```
-user@example~$ ffmpeg -f x11grab -framerate 15 -s 1920x1080 -i :0.0 -c libx264 tcp://remote:12345
+user@example~$ ffmpeg -f x11grab -framerate 15 -s 1920x1080 -i :0.0 -c libx264 -f matroska tcp://remote:12345
 ```
 
 You will see the server writing some information, as it is still quite verbose (it was even more verbose in earlier versions for obvious reasons ;) ).
