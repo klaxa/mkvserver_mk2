@@ -2,6 +2,9 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <string.h>
+#include <getopt.h>
+#include <stdlib.h>
 
 #include <libavutil/timestamp.h>
 #include <libavutil/time.h>
@@ -14,7 +17,6 @@
 #include "publisher.h"
 
 #define BUFFER_SECS 30
-
 
 struct ReadInfo {
     struct PublisherContext *pub;
@@ -425,18 +427,144 @@ int main(int argc, char *argv[])
     struct AcceptInfo ainfo;
     struct WriteInfo *winfos;
     struct PublisherContext *pub;
-    int ret, i;
+
+    int
+      ret,
+      i,
+      g = 0, //holds input from getopt case statement
+      a = 0, //flag to indicate -a was used
+      r = 0, //flag to indicate -r was used
+      p = 0, //flag to indicate -u was used
+      u = 0; //flag to indicate -h was used
+    char* protocol = NULL; //string to hold protocol
+    char* addr = NULL; //string to hold addr
+    char* port = NULL; //string to hold port
+    const char* url = NULL; //const char to hold url
     pthread_t r_thread;
     pthread_t *w_threads;
 
     AVFormatContext *ifmt_ctx = NULL;
 
-    rinfo.in_filename = "pipe:0";
-    ainfo.out_uri = "http://0:8080";
-    if (argc > 1) {
-        rinfo.in_filename = argv[1];
-    }
+    opterr = 0;
+    
+    for (;;)
+      {
+	static struct option long_options[] =
+	{
+	 {"address", required_argument, NULL, 'a'},
+	 {"port", required_argument, NULL, 'p'},
+	 {"protocol", required_argument, NULL, 'r'},
+	 {"url", required_argument, NULL, 'u'},
+	 {"help", no_argument, NULL, 'h'},
+	 {NULL, 0, NULL, 0}
+	};
 
+	int option_index = 0;
+
+	  g = getopt_long (argc, argv, "a:p:r:u:h", long_options, &option_index);
+	if (g == -1)
+	  break;
+
+	switch (g)
+	  {
+	  case 0:
+	    if (long_options[option_index].flag != 0)
+	      break;
+	    printf ("option %s", long_options[option_index].name);
+	    if (optarg)
+	      printf (" with arg %s\n", optarg);
+	    break;
+
+	  case 'a':
+	    if (strlen(optarg) > 0)
+	      {
+		addr = strdup(optarg);
+		a = 1;
+	      }
+	    break;
+
+	  case 'p':
+	    if (strlen(optarg) > 0)
+	      {
+		port = strdup(optarg);
+		p = 1;
+	      }
+	    break;
+
+	  case 'r':
+	    if (strlen(optarg) > 0)
+	      {
+		protocol = strdup(optarg);
+		r = 1;
+	      }
+	    break;
+
+	    //-u overrides the other options
+	  case 'u':
+	    if (strlen(optarg) > 0)
+	    {
+	      url = strdup(optarg);
+	      u = 1;
+	    }
+	    break;
+
+	  case 'h':
+	    puts("usage: server [-ahpru] [file]");
+	    puts("The default generated url is http://0:8080");
+	    puts("A url can be customized by providing the address (-a), port (-p), or protocol (-r). A url can be entered in full with the -u option.");
+	    puts("-a, --address    Specify an address to use in url (default 0)");
+	    puts("-h, --help       Print this help message");
+	    puts("-p, --port       Specify a port to use in url (default 8080)");
+	    puts("-r, --protocol   Specify a protocol to use in url (default http)");
+	    puts("-u, --url        Specify a url with the following format. (protocol://address:port).");
+	    puts("                 If other options are used with -u, -u will override the other options.");
+	    puts("");
+	    return 1;
+
+	  case '?':
+	    break;
+	      
+	  default:
+	    abort();
+	  }
+      }
+    
+    //if custom url not given generates string with default values and applicable specified portions.
+    if (u == 0)
+      {
+	//check if values were set to 0 to give default values	
+	if (r == 0)
+	  protocol = "http";
+	if (a == 0)
+	  addr = "0";
+	if (p == 0)
+	  port = "8080";
+
+	//Build the string in the following format:
+	//protocol + "://" + addr + ":" + port
+	url = malloc(strlen(protocol) + strlen("://") + strlen(addr) + strlen(":") + strlen(port) + 1);
+	if (url)
+	  strcpy(url, protocol);
+	strcat(url, "://");
+	strcat(url, addr);
+	strcat(url, ":");
+	strcat(url, port);
+      }    
+    //!!!!!for some reason it is not accepting -u in conjunction with the url and is throwing a "Failed to open server: Protocol not found" error. The server doesn't respond to requests properly as well.  
+    rinfo.in_filename = "pipe:0";
+    ainfo.out_uri = url;
+    free(url);
+    //Last argument is assumed to be path to file, checks to see if it exists. If not, prints out argument number that wasn't a file. It prints out a number in a non-zero ordered enumerated state for user friendliness. 
+    if (argc > 1) {
+      if (access(argv[argc - 1], F_OK) == 0)
+	rinfo.in_filename = argv[argc - 1];
+      else
+	{
+	  fprintf(stderr, "main: argument %d isn't a file.\n", (argc));
+	  return 1;
+	}
+    }
+    
     av_register_all();
     avformat_network_init();
 
