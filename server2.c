@@ -468,9 +468,9 @@ int main(int argc, char *argv[])
     //read_thread(&rinfo);
 
 
-    pthread_join(r_thread, NULL);
+    pthread_cancel(r_thread);
     for (i = 0; i < pub->nb_threads; i++) {
-        pthread_join(w_threads[i], NULL);
+        pthread_cancel(w_threads[i]);
     }
 
     publisher_free(pub);
