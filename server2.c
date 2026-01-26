@@ -239,7 +239,6 @@ void *accept_thread(void *arg)
     AVIOContext *client;
     AVIOContext *server = NULL;
     AVFormatContext *ofmt_ctx;
-    AVOutputFormat *ofmt;
     AVDictionary *options = NULL;
     AVDictionary *mkvoptions = NULL;
     AVStream *in_stream, *out_stream;
@@ -298,8 +297,8 @@ void *accept_thread(void *arg)
         }
 
         while ((handshake = avio_handshake(client)) > 0) {
-            av_opt_get(client, "method", AV_OPT_SEARCH_CHILDREN, &method);
-            av_opt_get(client, "resource", AV_OPT_SEARCH_CHILDREN, &resource);
+            av_opt_get(client, "method", AV_OPT_SEARCH_CHILDREN, (uint8_t **)&method);
+            av_opt_get(client, "resource", AV_OPT_SEARCH_CHILDREN, (uint8_t **)&resource);
             printf("method: %s resource: %s\n", method, resource);
             if (method && strlen(method) && strncmp("GET", method, 3)) {
                 reply_code = 400;
@@ -339,8 +338,7 @@ void *accept_thread(void *arg)
             continue;
         }
         ofmt_ctx->flags |= AVFMT_FLAG_GENPTS;
-        ofmt = ofmt_ctx->oformat;
-        ofmt->flags &= AVFMT_NOFILE;
+        ofmt_ctx->flags |= AVFMT_NOFILE;
 
         for (i = 0; i < info->ifmt_ctx->nb_streams; i++)
         {
@@ -437,7 +435,6 @@ int main(int argc, char *argv[])
         rinfo.in_filename = argv[1];
     }
 
-    av_register_all();
     avformat_network_init();
 
     if ((ret = avformat_open_input(&ifmt_ctx, rinfo.in_filename, 0, 0))) {

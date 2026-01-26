@@ -15,7 +15,7 @@ struct Segment {
     char *buf;
     AVIOContext *io_ctx;
     AVFormatContext *fmt_ctx;
-    AVInputFormat *ifmt;
+    const AVInputFormat *ifmt;
     size_t size;
     int64_t *ts;
     size_t ts_len;
@@ -36,7 +36,7 @@ void segment_unref(struct Segment *seg);
 
 void segment_ts_append(struct Segment *seg, int64_t dts, int64_t pts);
 
-int segment_write(void *opaque, unsigned char *buf, int buf_size);
+int segment_write(void *opaque, const uint8_t *buf, int buf_size);
 
 int segment_read(void *opaque, unsigned char *buf, int buf_size);
 
