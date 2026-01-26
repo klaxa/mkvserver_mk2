@@ -51,7 +51,7 @@ void segment_ts_append(struct Segment *seg, int64_t dts, int64_t pts)
     return;
 }
 
-int segment_write(void *opaque, unsigned char *buf, int buf_size)
+int segment_write(void *opaque, const uint8_t *buf, int buf_size)
 {
     struct Segment *seg = (struct Segment*) opaque;
     //return fwrite(buf, buf_size, 1, seg->stream);
@@ -105,7 +105,6 @@ void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
     int ret;
     size_t i;
     AVStream *in_stream, *out_stream;
-    AVCodecContext *codec_ctx;
     struct Segment *seg = (struct Segment*) malloc(sizeof(struct Segment));
 
     seg->ifmt = fmt->iformat;
@@ -126,7 +125,7 @@ void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
     }
 
     seg->fmt_ctx->flags |= AVFMT_FLAG_GENPTS;
-    seg->fmt_ctx->oformat->flags &= AVFMT_NOFILE;
+    seg->fmt_ctx->flags |= AVFMT_NOFILE;
 
     printf("Initializing segment\n");
 
@@ -134,11 +133,7 @@ void segment_init(struct Segment **seg_p, AVFormatContext *fmt)
         in_stream = fmt->streams[i];
         //enum AVMediaType type = in_stream->codecpar->codec_type;
         //if (type == AVMEDIA_TYPE_VIDEO || type == AVMEDIA_TYPE_AUDIO || type == AVMEDIA_TYPE_SUBTITLE) {
-            codec_ctx = avcodec_alloc_context3(NULL);
-            avcodec_parameters_to_context(codec_ctx, in_stream->codecpar);
-            out_stream = avformat_new_stream(seg->fmt_ctx, codec_ctx->codec);
-            //avcodec_parameters_to_context(out_stream->codec, in_stream->codecpar);
-            avcodec_free_context(&codec_ctx);
+            out_stream = avformat_new_stream(seg->fmt_ctx, NULL);
             if (!out_stream) {
                 fprintf(stdout, "Failed allocating output stream\n");
                 continue;
